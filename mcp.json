@@ -1,0 +1,9 @@
+{
+
+  "servers": {
+    "mcp-nauto": {
+      "type": "http",
+      "url": "http://localhost:8050/mcp"
+    }
+  }
+}
