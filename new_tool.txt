@@ -1,0 +1,135 @@
+nautobot_graphql.py
+
+
+PREFIXES_QUERY_BY_ROLE = """
+query PrefixesByRole($role: String!) {
+  prefixes(role: [$role]) {
+    prefix
+    status {
+      name
+    }
+    role {
+      name
+    }
+    vrfs {
+      name
+      description
+      devices {
+        name
+      }
+    }
+    description
+    locations {
+      name
+    }
+  }
+}
+"""
+
+    def get_prefixes_by_role(self, role_name: str) -> List[Dict[str, Any]]:
+        """Get all prefixes for a given role name."""
+        try:
+            data = self.query(PREFIXES_QUERY_BY_ROLE, {"role": role_name})
+            prefixes_data = data["data"]["prefixes"]
+            
+            prefixes = []
+            for prefix in prefixes_data:
+                # Get location names from the locations array
+                location_names = [loc["name"] for loc in (prefix.get("locations") or [])]
+                
+                # Get VRF names from the vrfs array
+                vrfs = []
+                for vrf in (prefix.get("vrfs") or []):
+                    devices = [device["name"] for device in (vrf.get("devices") or [])]
+                    vrfs.append({
+                        "name": vrf.get("name"),
+                        "description": vrf.get("description"),
+                        "devices": devices
+                    })
+
+                prefix_data = {
+                    "prefix": prefix["prefix"],
+                    "status": (prefix["status"] or {}).get("name"),
+                    "role": (prefix["role"] or {}).get("name"),
+                    "description": prefix.get("description"),
+                    "locations": location_names,
+                    "vrfs": vrfs
+                }
+                prefixes.append(prefix_data)
+            
+            logger.info("Retrieved prefixes by role", role=role_name, count=len(prefixes))
+            return prefixes
+        except Exception as e:
+            logger.error("Failed to get prefixes by role", role=role_name, error=str(e))
+            raise RuntimeError(f"GraphQL request failed: {e}")          
+
+
+
+Prefixes.py
+
+
+def get_prefixes_by_role(role_name: str) -> Dict[str, Any]:
+    """Get prefixes by role name and return raw JSON data.
+    
+    Note: The 'format' argument is accepted for backward compatibility but ignored. The
+    MCP server always returns JSON, leaving all formatting/analysis to the caller/LLM.
+    """    
+    
+    try:
+        logger.info("Getting prefixes by role", role=role_name)
+
+        # Get prefixes from Nautobot
+        prefixes = client.get_prefixes_by_role(role_name)
+
+        if not prefixes:
+            return {
+                "success": True,
+                "message": f"No prefixes found with role '{role_name}'",
+                "data": [],
+                "count": 0,
+            }
+
+        result = {
+            "success": True,
+            "message": f"Found {len(prefixes)} prefixes with role '{role_name}'",
+            "count": len(prefixes),
+            "data": prefixes,
+        }
+
+        logger.info("Successfully retrieved prefixes by role", role=role_name, count=len(prefixes))
+
+        return result
+
+    except Exception as e:
+        logger.error("Failed to get prefixes for role", role=role_name, error=str(e))
+        return {
+            "success": False,
+            "error": f"Failed to get prefixes for role '{role_name}': {str(e)}",
+            "data": [],
+            "count": 0,
+        }   
+
+Server.py
+
+from .tools.prefixes import (
+    get_prefixes_by_location,
+    get_prefixes_by_role,
+)
+
+
+def get_prefixes_by_role_tool(role_name: str) -> Dict[str, Any]:
+    """Get prefixes by role name.
+    
+    Args:
+        role_name: The name of the prefix role (e.g., "Internet", "Internal")
+        
+    Returns:
+        Dictionary containing prefix data in JSON format
+    """
+    return get_prefixes_by_role(role_name)
+
+
+server.add_tool(prefixes_by_role_tool)
+
+
+
